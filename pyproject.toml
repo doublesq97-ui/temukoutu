@@ -1,0 +1,10 @@
+[project]
+name = "print-extractor-ai"
+version = "0.1.0"
+requires-python = ">=3.11"
+description = "Local, source-preserving print extraction workbench"
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["backend/tests", "tests/integration"]
+addopts = "-ra"

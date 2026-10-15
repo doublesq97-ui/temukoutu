@@ -1,0 +1,57 @@
+import {test,expect} from '@playwright/test';
+import path from 'node:path';
+
+test('real Family Christmas product: upload to downloaded transparent PNG',async({page})=>{
+  const source=process.env.PRINT_EXTRACTOR_REAL_IMAGE;
+  test.skip(!source,'Set PRINT_EXTRACTOR_REAL_IMAGE to the user-provided original photo.');
+  await page.setViewportSize({width:1440,height:1500});
+  const errors:string[]=[];page.on('pageerror',e=>errors.push(e.message));
+  await page.goto('/');
+  await page.getByTestId('upload').setInputFiles(source!);
+  const generate=page.getByRole('button',{name:'生成分割候选',exact:true});
+  await expect(generate).toBeEnabled();
+  await expect(page.getByRole('button',{name:'验证并导出 RGBA PNG ↗',exact:true})).toBeDisabled();
+  await page.getByRole('button',{name:'矩形选区',exact:true}).click();
+  const editor=page.locator('.editor');await editor.evaluate(el=>el.scrollTop=100);
+  const canvas=page.getByTestId('editor'),box=(await canvas.boundingBox())!;
+  const dim=await canvas.evaluate((c:HTMLCanvasElement)=>({w:c.width,h:c.height}));
+  await page.mouse.move(box.x+170*box.width/dim.w,box.y+235*box.height/dim.h);
+  await page.mouse.down();
+  await page.mouse.move(box.x+468*box.width/dim.w,box.y+598*box.height/dim.h,{steps:12});
+  await page.mouse.up();
+  await page.getByRole('button',{name:'确认并裁切选区',exact:true}).click();await expect(generate).toBeEnabled();
+  await page.getByLabel('分割算法').selectOption('color');
+  const tolerance=page.getByLabel('颜色差异');await tolerance.focus();await tolerance.press('Home');
+  for(let i=0;i<16;i++)await tolerance.press('ArrowRight');
+  await expect(tolerance).toHaveValue('18');
+  await generate.click();await expect(generate).toBeEnabled();
+  for(const name of ['白底','黑底','棋盘格'])await page.getByRole('button',{name,exact:true}).click();
+  // Exercise brush and undo on the real image, leaving the generated mask intact.
+  await page.getByRole('button',{name:'200%',exact:true}).click();
+  await page.getByRole('button',{name:'添加画笔',exact:true}).click();
+  await editor.evaluate(el=>{el.scrollTop=0;el.scrollLeft=0;});
+  const zoomed=(await canvas.boundingBox())!;
+  await page.mouse.click(zoomed.x+10,zoomed.y+10);await expect(generate).toBeEnabled();
+  await page.getByRole('button',{name:'撤销',exact:true}).click();await expect(generate).toBeEnabled();
+  await page.getByRole('button',{name:'适应',exact:true}).click();
+  await page.getByRole('button',{name:'验证并导出 RGBA PNG ↗',exact:true}).click();
+  const link=page.getByRole('link',{name:'下载透明 PNG ↓'});await expect(link).toBeVisible();
+  const downloading=page.waitForEvent('download');await link.click();const download=await downloading;
+  await download.saveAs(path.resolve('../artifacts/real-product-browser-download.png'));
+  await page.screenshot({path:path.resolve('../artifacts/real-product-workflow.png'),fullPage:true});
+  const metadata=await page.evaluate(async()=>{
+    const id=localStorage.getItem('print-extractor-task');return (await fetch(`/api/tasks/${id}`)).json();
+  });
+  expect(metadata.method).toBe('color');expect(metadata.export.alpha_min).toBe(0);
+  expect(metadata.export.alpha_max).toBe(255);expect(metadata.export.width).toBeLessThan(400);
+  expect(metadata.export.height).toBeLessThan(450);expect(errors).toEqual([]);
+  await page.getByLabel('导出大小').selectOption('custom');
+  await expect(link).toHaveCount(0);
+  await page.getByLabel('目标长边').fill('1254');
+  await page.getByRole('button',{name:'验证并导出 RGBA PNG ↗',exact:true}).click();
+  await expect(link).toBeVisible();
+  await expect(page.getByTestId('export-size')).toHaveText('1018 × 1254');
+  await expect(page.getByText('插值放大，不增加原始细节；原尺寸',{exact:false})).toBeVisible();
+  const enlarged=page.waitForEvent('download');await link.click();
+  await (await enlarged).saveAs(path.resolve('../artifacts/real-product-1254-interpolated.png'));
+});
